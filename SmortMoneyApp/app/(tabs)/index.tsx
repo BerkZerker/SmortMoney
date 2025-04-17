@@ -1,45 +1,73 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  StyleSheet, 
+  View, 
+  Image, 
+  Alert, 
+  ActivityIndicator, 
+  ScrollView, 
+  TouchableOpacity,
+  Text as RNText,
+  Dimensions
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, Button, Image, Alert, ActivityIndicator, ScrollView, TouchableOpacity } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadTransactionImage, updateTransactionCategory } from '../../api/transactions';
-import { getCategories } from '../../api/categoryService'; // Import category service
+import { getCategories } from '../../api/categoryService';
+import { Colors } from '../../constants/Colors';
+import { useColorScheme } from '../../hooks/useColorScheme';
+import { ThemedView } from '../../components/ThemedView';
+import { ThemedText } from '../../components/ThemedText';
+import { Button } from '../../components/Button';
+import { Card } from '../../components/Card';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-// Define interfaces for better type safety
-interface CategoryType { // Define Category type
+// Get screen dimensions for responsive layout
+const { width } = Dimensions.get('window');
+const containerPadding = 16;
+const contentWidth = width - (containerPadding * 2);
+
+// Define interfaces for type safety
+interface CategoryType {
   id: string;
   name: string;
   iconName?: string | null;
 }
+
 interface TransactionType {
   id: string;
   merchant: string;
   amount: number;
-  date: string; // Keep as string from JSON, convert for display
+  date: string;
   categoryId: string | null;
-  category?: CategoryType; // Include full category object after update
+  category?: CategoryType;
 }
 
 interface ApiError {
   message: string;
-  data?: any; // Optional data related to the error
-  error?: string; // Optional error message string
+  data?: any;
+  error?: string;
 }
 
 interface ApiResponse {
   message: string;
-  transactions: TransactionType[]; // Now expects an array
-  errors?: ApiError[]; // Optional array of errors
+  transactions: TransactionType[];
+  errors?: ApiError[];
 }
 
-// Renamed component to match filename convention (optional but good practice)
 export default function HomeScreen() {
-  const [image, setImage] = useState<ImagePicker.ImagePickerAsset | null>(null); // Explicitly type state
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light']; // Added fallback for colorScheme
+
+  // State to hold multiple images
+  const [images, setImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isUpdatingCategory, setIsUpdatingCategory] = useState<string | null>(null); // Track which transaction's category is being updated
-  const [uploadStatus, setUploadStatus] = useState(''); // To show success/error messages
-  const [savedTransactions, setSavedTransactions] = useState<TransactionType[]>([]); // State to hold array of transactions
-  const [categories, setCategories] = useState<CategoryType[]>([]); // State for categories
+  const [isUpdatingCategory, setIsUpdatingCategory] = useState<string | null>(null);
+  // Store status per image or overall
+  const [uploadStatus, setUploadStatus] = useState('');
+  // Aggregate transactions from all uploads
+  const [savedTransactions, setSavedTransactions] = useState<TransactionType[]>([]);
+  const [categories, setCategories] = useState<CategoryType[]>([]);
 
   // Fetch categories on mount
   useEffect(() => {
@@ -49,88 +77,86 @@ export default function HomeScreen() {
         setCategories(fetchedCategories);
       } catch (error) {
         console.error("Failed to fetch categories:", error);
-        // Optionally show an error message to the user
         Alert.alert("Error", "Could not load categories. Category editing may not work correctly.");
       }
     };
     fetchCategories();
   }, []);
 
-
-  // No need for explicit permission request on Web, handled by browser
-  // On mobile, permissions are typically requested when launching the picker
-  // but it's good practice to ensure they are granted.
-
   const pickImage = async () => {
-    // Request permissions first (important for iOS and Android standalone apps)
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
       return;
     }
 
-    // Launch the image library
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Only allow images
-      allowsEditing: false, // Optional: allow editing
-      quality: 1, // 1 means high quality
-      // base64: true, // No longer needed if using blob upload
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false, // Editing not usually needed for multiple
+      quality: 1,
+      allowsMultipleSelection: true, // Enable multiple selection
     });
 
-    if (!result.canceled) {
-      if (result.assets && result.assets.length > 0) {
-        setImage(result.assets[0]); // Store the selected asset object
-        setUploadStatus(''); // Clear previous status messages
-        setSavedTransactions([]); // Clear previous transaction data
-        console.log('Image selected, URI:', result.assets[0].uri);
-      }
+    if (!result.canceled && result.assets) {
+      setImages(result.assets); // Store the array of selected assets
+      setUploadStatus('');
+      setSavedTransactions([]);
     }
   };
 
   const handleUpload = async () => {
-    if (!image) {
-      Alert.alert('No Image', 'Please select an image first.');
+    if (images.length === 0) {
+      Alert.alert('No Images', 'Please select one or more images first.');
       return;
     }
 
     setIsLoading(true);
-    setUploadStatus('Uploading and analyzing...');
-    setSavedTransactions([]); // Clear previous results
+    setUploadStatus(`Uploading ${images.length} image(s)...`);
+    let cumulativeTransactions: TransactionType[] = [];
+    let cumulativeErrors: ApiError[] = [];
+    let successCount = 0;
+    let failCount = 0;
 
-    try {
-      const responseData = await uploadTransactionImage(image) as ApiResponse;
-
-      let statusMessage = responseData.message || 'Processing complete.';
-      if (responseData.errors && responseData.errors.length > 0) {
-        statusMessage += ` Encountered ${responseData.errors.length} error(s).`;
-        console.error("Errors during processing:", responseData.errors);
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      setUploadStatus(`Uploading image ${i + 1} of ${images.length}...`);
+      try {
+        const responseData = await uploadTransactionImage(image) as ApiResponse;
+        successCount++;
+        if (responseData.transactions) {
+          // Ensure category data is populated if available from upload response
+          const transactionsWithCategory = responseData.transactions.map(t => ({
+            ...t,
+            category: categories.find(c => c.id === t.categoryId)
+          }));
+          cumulativeTransactions = [...cumulativeTransactions, ...transactionsWithCategory];
+        }
+        if (responseData.errors) {
+          cumulativeErrors = [...cumulativeErrors, ...responseData.errors];
+        }
+      } catch (error: unknown) {
+        failCount++;
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        cumulativeErrors.push({ message: `Failed to upload/process image ${i + 1}: ${message}` });
+        console.error(`Error processing image ${i + 1}:`, error);
       }
-
-      setUploadStatus(statusMessage);
-      // Ensure category data is populated if available from upload response
-      const transactionsWithCategory = responseData.transactions?.map(t => ({
-        ...t,
-        category: categories.find(c => c.id === t.categoryId)
-      })) || [];
-      setSavedTransactions(transactionsWithCategory);
-
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        setUploadStatus(`Upload failed: ${error.message}`);
-      } else {
-        setUploadStatus('Upload failed: An unknown error occurred.');
-      }
-      setSavedTransactions([]);
-    } finally {
-      setIsLoading(false);
     }
+
+    // Update final status and transactions list
+    let finalStatus = `Processed ${images.length} image(s). ${successCount} succeeded, ${failCount} failed.`;
+    if (cumulativeErrors.length > 0) {
+      finalStatus += ` ${cumulativeErrors.length} error(s) encountered.`;
+      // Optionally log detailed errors here or show a summary
+    }
+    setUploadStatus(finalStatus);
+    setSavedTransactions(cumulativeTransactions);
+    setIsLoading(false);
   };
 
-  // --- Category Change Handling ---
+  // Category Change Handling
   const handleChangeCategory = (transaction: TransactionType) => {
     if (isUpdatingCategory) return; // Prevent multiple updates at once
 
-    // Explicitly type the array for Alert buttons
     const categoryOptions: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }> = categories.map(cat => ({
       text: cat.name,
       onPress: () => updateCategory(transaction.id, cat.id),
@@ -139,7 +165,7 @@ export default function HomeScreen() {
     // Add "Uncategorized" option
     categoryOptions.push({
       text: 'Uncategorized',
-      onPress: () => updateCategory(transaction.id, null), // Pass null for uncategorized
+      onPress: () => updateCategory(transaction.id, null),
     });
 
     // Add Cancel button
@@ -152,14 +178,13 @@ export default function HomeScreen() {
       'Change Category',
       `Select a new category for "${transaction.merchant}"`,
       categoryOptions,
-      { cancelable: true } // Allow dismissing by tapping outside on Android
+      { cancelable: true }
     );
   };
 
   const updateCategory = async (transactionId: string, newCategoryId: string | null) => {
-    setIsUpdatingCategory(transactionId); // Set loading state for this specific transaction
+    setIsUpdatingCategory(transactionId);
     try {
-      // Explicitly cast the result to TransactionType
       const updatedTransaction = await updateTransactionCategory(transactionId, newCategoryId) as TransactionType;
 
       // Update local state immediately for better UX
@@ -168,219 +193,314 @@ export default function HomeScreen() {
           t.id === transactionId ? { ...t, categoryId: newCategoryId, category: updatedTransaction.category } : t
         )
       );
-      // Optionally show a success toast/message
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'An unknown error occurred.';
       Alert.alert('Update Failed', `Could not update category: ${message}`);
     } finally {
-      setIsUpdatingCategory(null); // Clear loading state
+      setIsUpdatingCategory(null);
     }
   };
 
   // Helper to get category name
   const getCategoryName = useCallback((categoryId: string | null): string => {
-    if (!categoryId) return 'N/A';
+    if (!categoryId) return 'Uncategorized';
     const category = categories.find(cat => cat.id === categoryId);
     return category ? category.name : 'Unknown Category';
   }, [categories]);
-  // --- End Category Change Handling ---
 
+  const formatDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString(undefined, { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
 
   return (
-    // Wrap content in ScrollView
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>SmortMoney Transaction Upload</Text>
-
-      {/* Button to pick image */}
-      {!image && <Button title="Pick Transaction Screenshot" onPress={pickImage} />}
-
-      {/* Display selected image and upload button */}
-      {image && (
-        <View style={styles.imageContainer}>
-          <Text>Selected Image:</Text>
-          <Image source={{ uri: image.uri }} style={styles.image} />
-          <View style={styles.buttonContainer}>
-            <Button title="Upload Image" onPress={handleUpload} disabled={isLoading} />
-            <Button title="Clear Selection" onPress={() => { setImage(null); setUploadStatus(''); setSavedTransactions([]); }} disabled={isLoading} color="#aaa" />
-          </View>
+    <ThemedView style={styles.container}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <ThemedText type="title" style={styles.title}>SmortMoney</ThemedText>
+          <ThemedText type="subtitle" style={styles.subtitle}>Transaction Scanner</ThemedText>
         </View>
-      )}
 
-      {/* Loading indicator */}
-      {isLoading && <ActivityIndicator size="large" color="#10B981" style={styles.status} />}
-
-      {/* Status Message */}
-      {uploadStatus && <Text style={[styles.status, uploadStatus.includes('failed') && styles.errorText]}>{uploadStatus}</Text>}
-
-      {/* Display Saved Transaction Details */}
-      {savedTransactions.length > 0 && (
-        <View style={styles.resultsListContainer}>
-          <Text style={styles.resultTitle}>Saved Transactions:</Text>
-          {savedTransactions.map((transaction) => (
-            <View key={transaction.id} style={styles.resultContainer}>
-              <View style={styles.transactionRow}>
-                <Text style={styles.transactionLabel}>Merchant:</Text>
-                <Text style={styles.transactionValue}>{transaction.merchant}</Text>
-              </View>
-              <View style={styles.transactionRow}>
-                <Text style={styles.transactionLabel}>Amount:</Text>
-                <Text style={styles.transactionValue}>${transaction.amount.toFixed(2)}</Text>
-              </View>
-              <View style={styles.transactionRow}>
-                <Text style={styles.transactionLabel}>Date:</Text>
-                <Text style={styles.transactionValue}>{new Date(transaction.date).toLocaleDateString()}</Text>
-              </View>
-              <View style={styles.transactionRow}>
-                <Text style={styles.transactionLabel}>Category:</Text>
-                <TouchableOpacity
-                  onPress={() => handleChangeCategory(transaction)}
-                  disabled={isUpdatingCategory === transaction.id} // Disable while updating this specific one
-                  style={styles.categoryTouchable}
-                >
-                  {isUpdatingCategory === transaction.id ? (
-                    <ActivityIndicator size="small" color="#10B981" />
-                  ) : (
-                    <Text style={styles.categoryText}>
-                      {getCategoryName(transaction.categoryId)}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+        {/* Image Selection Area */}
+        {images.length === 0 ? (
+          // Show upload prompt if no images selected
+          <Card style={styles.uploadCard}>
+            <View style={styles.uploadContainer}>
+              <MaterialCommunityIcons
+                name="receipt-text-outline" 
+                size={48} 
+                color={colors.primary} 
+                style={styles.uploadIcon} 
+              />
+              <ThemedText style={styles.uploadText}>
+                Upload transaction receipts or screenshots
+              </ThemedText>
+              <Button 
+                title="Select Images" // Updated button text
+                onPress={pickImage}
+                variant="primary"
+                leftIcon={<MaterialCommunityIcons name="image-multiple" size={18} color="#fff" />} // Updated icon
+                style={styles.uploadButton}
+              />
             </View>
-          ))}
-        </View>
-      )}
+          </Card>
+        ) : (
+          // Show selected images info and upload/clear buttons
+          <Card style={styles.imageCard}>
+             {/* Display count */}
+             <ThemedText style={styles.selectedInfoText}>
+               {images.length} image(s) selected.
+             </ThemedText>
+             {/* Optional: Add a ScrollView with Image thumbnails here */}
+             {/* <ScrollView horizontal>
+               {images.map(img => <Image key={img.uri} source={{uri: img.uri}} style={styles.thumbnail} />)}
+             </ScrollView> */}
+            <View style={styles.buttonContainer}>
+              <Button
+                title={`Upload ${images.length}`}
+                onPress={handleUpload} 
+                loading={isLoading}
+                disabled={isLoading}
+                variant="primary"
+                leftIcon={<MaterialCommunityIcons name="cloud-upload" size={18} color="#fff" />}
+              />
+              <Button 
+                title="Clear"
+                onPress={() => {
+                  setImages([]); // Clear the images array
+                  setUploadStatus('');
+                  setSavedTransactions([]);
+                }}
+                disabled={isLoading}
+                variant="outline"
+                style={{ marginLeft: 8 }}
+              />
+            </View>
+          </Card>
+        )}
 
+        {/* Status Message */}
+        {uploadStatus && (
+          <View style={styles.statusContainer}>
+            {isLoading && uploadStatus.startsWith('Uploading image') ? ( // Show spinner only during individual uploads
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <MaterialCommunityIcons 
+                name={uploadStatus.includes('failed') ? "alert-circle" : "check-circle"} 
+                size={20} 
+                color={uploadStatus.includes('failed') ? colors.error : colors.success} 
+              />
+            )}
+            <ThemedText 
+              style={[
+                styles.statusText, 
+                {color: uploadStatus.includes('failed') ? colors.error : colors.text}
+              ]}
+            >
+              {uploadStatus}
+            </ThemedText>
+          </View>
+        )}
+
+        {/* Transactions List */}
+        {savedTransactions.length > 0 && (
+          <View style={styles.transactionsContainer}>
+            <ThemedText type="subtitle" style={styles.sectionTitle}>
+              Processed Transactions
+            </ThemedText>
+            
+            {savedTransactions.map((transaction) => (
+              <Card key={transaction.id} style={styles.transactionCard}>
+                <View style={styles.transactionHeader}>
+                  <ThemedText type="defaultSemiBold" style={styles.merchantName}>
+                    {transaction.merchant}
+                  </ThemedText>
+                  <ThemedText style={styles.transactionDate}>
+                    {formatDate(transaction.date)}
+                  </ThemedText>
+                </View>
+                
+                <View style={styles.transactionDetails}>
+                  <View style={styles.amountContainer}>
+                    <ThemedText type="defaultSemiBold" style={styles.amountText}>
+                      ${transaction.amount.toFixed(2)}
+                    </ThemedText>
+                  </View>
+                  
+                  <TouchableOpacity
+                    onPress={() => handleChangeCategory(transaction)}
+                    disabled={isUpdatingCategory === transaction.id}
+                    style={[
+                      styles.categoryChip,
+                      { backgroundColor: colors.primary + '20' } // 20% opacity
+                    ]}
+                  >
+                    {isUpdatingCategory === transaction.id ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons 
+                          name={transaction.category?.iconName || "tag-outline"} 
+                          size={16} 
+                          color={colors.primary} 
+                          style={styles.categoryIcon}
+                        />
+                        <RNText style={[styles.categoryText, { color: colors.primary }]}>
+                          {getCategoryName(transaction.categoryId)}
+                        </RNText>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </Card>
+            ))}
+          </View>
+        )}
+
+      </ScrollView>
       <StatusBar style="auto" />
-    </ScrollView> // End ScrollView
+    </ThemedView>
   );
 }
 
-// Re-using the styles from App.js
+// --- Styles (Restored and added new ones) ---
 const styles = StyleSheet.create({
   container: {
-    // flex: 1, // Remove flex: 1 for ScrollView content container
-    backgroundColor: '#f0f0f0', // Light gray background
-    alignItems: 'center',
-    paddingBottom: 40, // Add padding at the bottom for scroll space
-    paddingTop: 60, // Add padding top
-    paddingHorizontal: 20,
+    flex: 1,
   },
-  title: {
-    fontSize: 22, // Slightly larger title
-    fontWeight: 'bold',
-    marginBottom: 30,
-    color: '#333', // Darker title color
-    textAlign: 'center',
-  },
-  imageContainer: {
-    marginVertical: 20, // Use vertical margin
-    alignItems: 'center',
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: containerPadding,
+    paddingBottom: 16,
+    paddingTop: 16,
+    maxWidth: 600,
+    alignSelf: 'center',
     width: '100%',
   },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '90%', // Wider button container
-    marginTop: 20, // More space above buttons
-  },
-  button: { // Base button style
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 6,
+  header: {
     alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 100, // Minimum width
+    marginTop: 16,
+    marginBottom: 16,
   },
-  uploadButton: { // Specific style for upload button
-    backgroundColor: '#10B981', // Use theme color
-  },
-  clearButton: { // Specific style for clear button
-    backgroundColor: '#ccc',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  clearButtonText: {
-    color: '#333', // Darker text for clear button
-  },
-  buttonDisabled: { // Style for disabled buttons
-    opacity: 0.5,
-  },
-  image: {
-    width: '90%', // Responsive width
-    maxHeight: 350, // Limit the maximum height
-    resizeMode: 'contain', // Show the whole image
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    backgroundColor: '#fff', // White background for image area
-  },
-  status: {
-    marginTop: 20,
-    fontSize: 16,
+  title: {
+    marginBottom: 4,
     textAlign: 'center',
   },
-  errorText: {
-    color: 'red',
+  subtitle: {
+    textAlign: 'center',
+    opacity: 0.7,
   },
-  resultContainer: { // Card style for each transaction
-    backgroundColor: '#fff', // White background for the card
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 12, // Space between cards
-    shadowColor: '#000', // Shadow for depth
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.20,
-    shadowRadius: 1.41,
-    elevation: 2, // Elevation for Android shadow
+  uploadCard: {
+    marginVertical: 12,
   },
-  resultsListContainer: { // Style for the container of all results
-    marginTop: 20,
-    width: '95%', // Slightly wider container
-    alignSelf: 'center',
+  uploadContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
   },
-  resultTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10, // Increased margin
-    color: '#10B981', // Emerald Green
-    textAlign: 'left', // Align left
+  uploadIcon: {
+    marginBottom: 12,
   },
-  transactionRow: {
+  uploadText: {
+    textAlign: 'center',
+    marginBottom: 16,
+    fontSize: 14,
+  },
+  uploadButton: {
+    minWidth: 150,
+  },
+  imageCard: {
+    marginVertical: 12,
+    padding: 15, // Added padding for consistency
+  },
+  selectedInfoText: {
+    textAlign: 'center',
+    marginBottom: 12,
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  // Optional thumbnail style
+  // thumbnail: {
+  //   width: 60,
+  //   height: 60,
+  //   borderRadius: 4,
+  //   marginRight: 8,
+  //   marginBottom: 12,
+  // },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 10, // Added margin top
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 8,
+    paddingHorizontal: 10, // Added padding
+  },
+  statusText: {
+    marginLeft: 8,
+    fontSize: 14,
+    flexShrink: 1, // Allow text to wrap if needed
+  },
+  transactionsContainer: {
+    marginTop: 12,
+  },
+  sectionTitle: {
+    marginBottom: 8,
+    fontSize: 18, // Slightly larger section title
+  },
+  transactionCard: {
+    marginBottom: 8,
+  },
+  transactionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 5, // Space between rows
-    alignItems: 'center', // Align items vertically
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  transactionLabel: {
-    fontWeight: '600', // Slightly bolder label
-    color: '#555',
-    marginRight: 5,
+  merchantName: {
+    fontSize: 15,
   },
-  transactionValue: {
-    color: '#333',
-    flexShrink: 1, // Allow value to shrink if needed
-    textAlign: 'right',
+  transactionDate: {
+    fontSize: 13,
+    opacity: 0.6,
   },
-  categoryTouchable: {
-    paddingVertical: 2, // Add padding for easier touch
-    paddingHorizontal: 5,
-    borderRadius: 4,
-    backgroundColor: '#e0f2f1', // Light teal background
-    minWidth: 80, // Give it some minimum width
-    alignItems: 'center', // Center activity indicator
-    justifyContent: 'center', // Center vertically too
-    minHeight: 24, // Ensure minimum height for ActivityIndicator
+  transactionDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  amountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  amountText: {
+    fontSize: 16,
+  },
+  categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    minHeight: 28,
+    minWidth: 90, // Adjusted minWidth
+    justifyContent: 'center', // Center content in chip
+  },
+  categoryIcon: {
+    marginRight: 4,
   },
   categoryText: {
-    color: '#047857', // Darker teal text
+    fontSize: 13,
     fontWeight: '500',
-    textAlign: 'right',
-  }
+  },
 });

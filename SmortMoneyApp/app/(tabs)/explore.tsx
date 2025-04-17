@@ -1,24 +1,43 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Button, ActivityIndicator, Dimensions, ScrollView } from 'react-native';
-import { Link } from 'expo-router';
-import { PieChart, BarChart } from 'react-native-chart-kit'; // Import BarChart
+import { 
+  StyleSheet, 
+  View, 
+  ActivityIndicator, 
+  Dimensions, 
+  ScrollView,
+  TouchableOpacity
+} from 'react-native';
+import { router } from 'expo-router';
+import { PieChart, BarChart } from 'react-native-chart-kit';
 
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
-// Assuming api functions are correctly located relative to the app root
+import { Card } from '@/components/Card';
+import { Button } from '@/components/Button';
 import { getTransactionSummary } from '../../api/transactions';
 import { getCategories } from '../../api/categoryService';
-import { getBudgets } from '../../api/budgetService'; // Import budget service
+import { getBudgets } from '../../api/budgetService';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+
+// Get screen dimensions for responsive layout
+const { width } = Dimensions.get('window');
+const containerPadding = 16;
+const contentWidth = width - (containerPadding * 2);
+const chartWidth = Math.min(contentWidth, 500);
 
 // Define types locally or import if shared
 interface Category {
   id: string;
   name: string;
 }
+
 interface SpendingSummaryItem {
   categoryId: string;
   totalSpent: number;
 }
+
 interface PieChartData {
   name: string;
   population: number; // Corresponds to totalSpent
@@ -26,36 +45,28 @@ interface PieChartData {
   legendFontColor: string;
   legendFontSize: number;
 }
-interface Budget { // Add Budget type if not already defined/imported
-    id: string;
-    categoryId: string;
-    amount: number;
-    month: number;
-    year: number;
+
+interface Budget {
+  id: string;
+  categoryId: string;
+  amount: number;
+  month: number;
+  year: number;
 }
-interface BarChartData { // Type for the BarChart data structure
+
+interface BarChartData {
   labels: string[];
   datasets: [
     { data: number[]; colors: ((opacity: number) => string)[] }, // Spent
     { data: number[]; colors: ((opacity: number) => string)[] }  // Budgeted
   ];
-  legend: ["Spent", "Budgeted"]; // Add legend
+  legend: ["Spent", "Budgeted"];
 }
 
-
-// Function to generate random colors for the chart
-const getRandomColor = () => {
-  const letters = '0123456789ABCDEF';
-  let color = '#';
-  for (let i = 0; i < 6; i++) {
-    color += letters[Math.floor(Math.random() * 16)];
-  }
-  return color;
-};
-
-const screenWidth = Dimensions.get("window").width;
-
 export default function ExploreScreen() {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme];
+
   const [pieChartData, setPieChartData] = useState<PieChartData[]>([]);
   const [barChartData, setBarChartData] = useState<BarChartData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -72,31 +83,39 @@ export default function ExploreScreen() {
       const [summary, categories, budgets] = await Promise.all([
         getTransactionSummary(currentMonth, currentYear),
         getCategories(),
-        getBudgets(currentMonth, currentYear), // Fetch budgets for the period
+        getBudgets(currentMonth, currentYear),
       ]);
+
+      // Generate colors for pie chart
+      const chartColors = [
+        colors.primary,
+        colors.accent,
+        colors.secondary,
+        '#6366F1', // Indigo
+        '#EC4899', // Pink
+        '#8B5CF6', // Purple
+        '#14B8A6', // Teal
+        '#F59E0B', // Amber
+        '#6B7280', // Gray
+      ];
 
       // --- Process data for PieChart ---
       const processedPieData = summary
-        .map((item: SpendingSummaryItem) => { // Add type for item
-          const category = categories.find((cat: Category) => cat.id === item.categoryId); // Add type for cat
+        .map((item: SpendingSummaryItem, index: number) => {
+          const category = categories.find((cat: Category) => cat.id === item.categoryId);
           if (!category || item.totalSpent <= 0) {
             return null; // Skip items with no category or zero/negative spending
           }
           return {
             name: category.name,
             population: item.totalSpent,
-            color: getRandomColor(), // Assign a random color
-            legendFontColor: '#7F7F7F',
-            legendFontSize: 14,
+            color: chartColors[index % chartColors.length],
+            legendFontColor: colors.text,
+            legendFontSize: 12,
           };
         })
-        // Explicitly type item here, although the predicate should suffice
         .filter((item: PieChartData | null): item is PieChartData => item !== null);
 
-      if (processedPieData.length === 0) {
-         // Don't set error if just empty, show info text instead
-         // setError("No spending data available for the current month.");
-      }
       setPieChartData(processedPieData);
 
       // --- Process data for BarChart ---
@@ -111,211 +130,316 @@ export default function ExploreScreen() {
       const budgetColors: ((opacity: number) => string)[] = [];
 
       categories.forEach((cat: Category) => {
-          // Ensure these are treated as numbers
-          const spent = Number(summaryMap.get(cat.id) || 0);
-          const budget = Number(budgetMap.get(cat.id) || 0);
+        // Ensure these are treated as numbers
+        const spent = Number(summaryMap.get(cat.id) || 0);
+        const budget = Number(budgetMap.get(cat.id) || 0);
 
-          // Include category in bar chart only if there's spending or a budget > 0
-          if (spent > 0 || budget > 0) {
-              labels.push(cat.name.substring(0, 5) + (cat.name.length > 5 ? '...' : '')); // Abbreviate labels
-              spentData.push(spent);
-              budgetData.push(budget);
-              // Color spent bar red if over budget, otherwise green
-              spentColors.push(spent > budget && budget > 0 ? () => `rgba(244, 67, 54, 1)` : () => `rgba(76, 175, 80, 1)`);
-              // Budget bar color (e.g., blue)
-              budgetColors.push(() => `rgba(33, 150, 243, 1)`);
-          }
+        // Include category in bar chart only if there's spending or a budget > 0
+        if (spent > 0 || budget > 0) {
+          // Limit category name length for better display
+          const displayName = cat.name.length > 6 
+            ? cat.name.substring(0, 5) + '...' 
+            : cat.name;
+            
+          labels.push(displayName);
+          spentData.push(spent);
+          budgetData.push(budget);
+          
+          // Color spent bar red if over budget, otherwise blue
+          spentColors.push(
+            spent > budget && budget > 0 
+              ? () => colors.bad 
+              : () => colors.good
+          );
+          
+          // Budget bar color
+          budgetColors.push(() => colors.secondary);
+        }
       });
 
       if (labels.length > 0) {
-          setBarChartData({
-              labels: labels,
-              datasets: [
-                  { data: spentData, colors: spentColors },
-                  { data: budgetData, colors: budgetColors }
-              ],
-              legend: ["Spent", "Budgeted"]
-          });
+        setBarChartData({
+          labels: labels,
+          datasets: [
+            { data: spentData, colors: spentColors },
+            { data: budgetData, colors: budgetColors }
+          ],
+          legend: ["Spent", "Budgeted"]
+        });
       } else {
-          setBarChartData(null); // No data to display
+        setBarChartData(null); // No data to display
       }
-
 
     } catch (err) {
       console.error("Failed to fetch chart data:", err);
-      setError("Could not load spending summary.");
+      setError("Could not load spending data.");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [colorScheme]);
 
   useEffect(() => {
     fetchChartData();
   }, [fetchChartData]);
 
-  const pieChartConfig = {
-    color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`, // Base color function (not directly used by pie)
-    labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+  const chartConfig = {
+    backgroundColor: colors.card,
+    backgroundGradientFrom: colors.card,
+    backgroundGradientTo: colors.card,
+    decimalPlaces: 0,
+    color: (opacity = 1) => colors.text + (opacity * 255).toString(16).substring(0, 2),
+    labelColor: (opacity = 1) => colors.text + (opacity * 255).toString(16).substring(0, 2),
     style: {
-      borderRadius: 16,
+      borderRadius: 12,
     },
-    propsForDots: { // Example props if needed elsewhere
-      r: "6",
-      strokeWidth: "2",
-      stroke: "#ffa726"
-    }
-  };
-
-  // Specific config for BarChart to handle multiple datasets and custom colors
-  const barChartConfig = {
-    backgroundColor: "#ffffff",
-    backgroundGradientFrom: "#ffffff",
-    backgroundGradientTo: "#ffffff",
-    decimalPlaces: 0, // Show whole numbers for amounts
-    color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`, // Default color
-    labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-    style: {
-      borderRadius: 16,
+    barPercentage: 0.6,
+    propsForLabels: {
+      fontSize: 10,
     },
-    barPercentage: 0.7, // Adjust bar width
-    propsForLabels: { // Smaller font size for labels if needed
-        fontSize: "10",
-    },
-    // Use `withCustomBarColorFromData` to apply colors per bar based on dataset index
     withCustomBarColorFromData: true,
-    flatColor: false, // Required for withCustomBarColorFromData
+    flatColor: true,
   };
-
 
   return (
-    // Use ScrollView in case content overflows on smaller screens
-    <ScrollView contentContainerStyle={styles.scrollContainer}>
-      <ThemedView style={styles.container}>
-        <ThemedText type="title" style={styles.title}>Explore & Insights</ThemedText>
+    <ThemedView style={styles.container}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.contentWrapper}>
+          <View style={styles.header}>
+            <ThemedText type="title" style={styles.title}>Reports</ThemedText>
+          </View>
 
-        {/* --- Spending Chart Section --- */}
-        <View style={styles.chartSection}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>Current Month Spending</ThemedText>
-          {isLoading && <ActivityIndicator size="large" color="#007bff" style={styles.loadingIndicator}/>}
-          {error && <ThemedText style={styles.errorText}>{error}</ThemedText>}
-          {!isLoading && !error && pieChartData.length > 0 && (
-            <PieChart
-              data={pieChartData}
-              width={screenWidth - 40}
-              height={220}
-              chartConfig={pieChartConfig}
-              accessor={"population"} // Key to extract value from data item
-              backgroundColor={"transparent"}
-              paddingLeft={"15"} // Adjust padding as needed
-              // center={[10, 0]} // Optional: Adjust center position
-              absolute // Show absolute values instead of percentages
-              style={styles.chartStyle}
+          {/* Refresh Button */}
+          <View style={styles.refreshContainer}>
+            <TouchableOpacity 
+              style={[styles.refreshButton, { borderColor: colors.border }]} 
+              onPress={fetchChartData}
+              disabled={isLoading}
+            >
+              <MaterialCommunityIcons 
+                name="refresh" 
+                size={16} 
+                color={colors.primary}
+                style={isLoading ? styles.rotating : undefined}
+              />
+              <ThemedText style={styles.refreshText}>
+                {isLoading ? "Refreshing..." : "Refresh Data"}
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+
+          {/* Spending Chart Section */}
+          <Card style={styles.chartCard}>
+            <ThemedText type="subtitle" style={styles.sectionTitle}>
+              Current Month Spending
+            </ThemedText>
+            
+            {isLoading && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <ThemedText style={styles.loadingText}>Loading charts...</ThemedText>
+              </View>
+            )}
+            
+            {error && (
+              <View style={styles.errorContainer}>
+                <MaterialCommunityIcons 
+                  name="alert-circle-outline" 
+                  size={24} 
+                  color={colors.error} 
+                />
+                <ThemedText style={[styles.errorText, {color: colors.error}]}>
+                  {error}
+                </ThemedText>
+              </View>
+            )}
+            
+            {!isLoading && !error && pieChartData.length > 0 && (
+              <View style={styles.chartWrapper}>
+                <PieChart
+                  data={pieChartData}
+                  width={chartWidth}
+                  height={180}
+                  chartConfig={chartConfig}
+                  accessor={"population"}
+                  backgroundColor={"transparent"}
+                  paddingLeft={"15"}
+                  absolute
+                />
+              </View>
+            )}
+            
+            {!isLoading && !error && pieChartData.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <MaterialCommunityIcons 
+                  name="chart-pie" 
+                  size={40} 
+                  color={colors.muted} 
+                />
+                <ThemedText style={styles.emptyText}>
+                  No spending data available for this month.
+                </ThemedText>
+              </View>
+            )}
+          </Card>
+
+          {/* Budget vs Spending Chart Section */}
+          <Card style={styles.chartCard}>
+            <ThemedText type="subtitle" style={styles.sectionTitle}>
+              Budget vs. Spending
+            </ThemedText>
+            
+            {!isLoading && !error && barChartData && barChartData.labels.length > 0 && (
+              <View style={styles.chartWrapper}>
+                <BarChart
+                  style={styles.barChart}
+                  data={barChartData}
+                  width={chartWidth}
+                  height={220}
+                  chartConfig={chartConfig}
+                  verticalLabelRotation={45}
+                  showBarTops={false}
+                  fromZero={true}
+                  withInnerLines={false}
+                  showValuesOnTopOfBars={true}
+                  yAxisLabel="$"
+                  yAxisSuffix=""
+                />
+              </View>
+            )}
+            
+            {!isLoading && !error && (!barChartData || barChartData.labels.length === 0) && (
+              <View style={styles.emptyContainer}>
+                <MaterialCommunityIcons 
+                  name="chart-bar" 
+                  size={40} 
+                  color={colors.muted} 
+                />
+                <ThemedText style={styles.emptyText}>
+                  No budget or spending data available.
+                </ThemedText>
+              </View>
+            )}
+          </Card>
+
+          {/* Management Buttons */}
+          <View style={styles.buttonsContainer}>
+            <Button
+              title="Manage Budgets"
+              onPress={() => router.push('/budgets')}
+              variant="primary"
+              leftIcon={<MaterialCommunityIcons name="currency-usd" size={18} color="#fff" />}
+              style={styles.button}
             />
-          )}
-          {/* Show info text if not loading, no error, and no pie data */}
-          {!isLoading && !error && pieChartData.length === 0 && (
-             <ThemedText style={styles.infoText}>No spending data for pie chart.</ThemedText>
-          )}
-        </View>
-
-        {/* --- Budget vs Spending Chart Section --- */}
-        <View style={styles.chartSection}>
-           <ThemedText type="subtitle" style={styles.sectionTitle}>Budget vs. Spending</ThemedText>
-           {isLoading && <ActivityIndicator size="large" color="#007bff" style={styles.loadingIndicator}/>}
-           {/* Don't show general error here again, handled above */}
-           {!isLoading && !error && barChartData && barChartData.labels.length > 0 && (
-             <BarChart
-               style={styles.chartStyle}
-               data={barChartData}
-               width={screenWidth - 40}
-               height={250}
-               chartConfig={barChartConfig}
-               verticalLabelRotation={30}
-               showBarTops={false}
-               fromZero={true}
-               withInnerLines={false}
-               showValuesOnTopOfBars={true}
-               yAxisLabel="$" // Add required prop
-               yAxisSuffix="" // Add required prop
-             />
-           )}
-           {/* Show info text if not loading, no error, and no bar data */}
-           {!isLoading && !error && (!barChartData || barChartData.labels.length === 0) && (
-              <ThemedText style={styles.infoText}>No budget or spending data for bar chart.</ThemedText>
-           )}
-        </View>
-
-
-        {/* --- Management Links Section --- */}
-        <View style={styles.managementSection}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>Management</ThemedText>
-          <View style={styles.linkContainer}>
-            <Link href="/categories" asChild>
-              <Button title="Manage Categories" />
-            </Link>
-          </View>
-          <View style={styles.linkContainer}>
-            <Link href="/budgets" asChild>
-              <Button title="Manage Budgets" />
-            </Link>
+            <Button
+              title="Manage Categories"
+              onPress={() => router.push('/categories')}
+              variant="outline"
+              leftIcon={<MaterialCommunityIcons name="tag-multiple" size={18} color={colors.primary} />}
+              style={[styles.button, {marginTop: 12}]}
+            />
           </View>
         </View>
-
-      </ThemedView>
-    </ScrollView>
+      </ScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1, // Ensure ScrollView content can grow
-  },
   container: {
     flex: 1,
-    padding: 20,
-    justifyContent: 'flex-start',
   },
-  title: {
-    marginBottom: 25,
-    textAlign: 'center',
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: containerPadding,
+    paddingBottom: 20,
   },
-  chartSection: {
-    marginBottom: 30,
-    alignItems: 'center',
-  },
-  loadingIndicator: { // Style for loading indicators within sections
-      marginVertical: 20,
-  },
-  managementSection: {
-    marginTop: 10, // Reduced space above management links
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingTop: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 15,
-    textAlign: 'center',
-    color: '#444',
-  },
-  linkContainer: {
-    marginBottom: 15,
-    width: '80%',
+  contentWrapper: {
+    maxWidth: 600,
+    width: '100%',
     alignSelf: 'center',
   },
-  chartStyle: {
-    marginVertical: 8,
+  header: {
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  title: {
+    textAlign: 'center',
+  },
+  refreshContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  refreshButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 16,
+    borderWidth: 1,
+  },
+  refreshText: {
+    fontSize: 13,
+    marginLeft: 6,
+  },
+  rotating: {
+    transform: [{ rotate: '45deg' }],
+  },
+  chartCard: {
+    marginBottom: 16,
+    padding: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  chartWrapper: {
+    alignItems: 'center',
+  },
+  barChart: {
+    marginVertical: 8,
+    borderRadius: 12,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 14,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
   },
   errorText: {
-    color: 'red',
-    textAlign: 'center',
-    marginTop: 10,
+    marginLeft: 8,
+    fontSize: 14,
   },
-  infoText: {
-    color: '#666',
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyText: {
+    marginTop: 12,
     textAlign: 'center',
-    marginTop: 10,
-  }
+    opacity: 0.7,
+    fontSize: 14,
+  },
+  buttonsContainer: {
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  button: {
+    alignSelf: 'center',
+    minWidth: 200,
+  },
 });

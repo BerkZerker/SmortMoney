@@ -1,158 +1,327 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import { 
+  Modal, 
+  View, 
+  StyleSheet, 
+  TouchableOpacity, 
+  FlatList, 
+  TouchableWithoutFeedback,
+  Keyboard,
+  ScrollView
+} from 'react-native';
+import { Colors } from '../constants/Colors';
+import { useColorScheme } from '../hooks/useColorScheme';
+import { ThemedText } from './ThemedText';
+import { Button } from './Button';
+import { Input } from './Input';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
+// Define available icons for categories
+const AVAILABLE_ICONS = [
+  'food', 'food-apple', 'silverware-fork-knife', 'coffee', 'beer',
+  'shopping', 'cart', 'tag', 'cash', 'credit-card',
+  'home', 'home-city', 'lightbulb', 'water', 'gas-station',
+  'cellphone', 'television', 'laptop', 'router-wireless',
+  'bus', 'car', 'airplane', 'train', 'taxi',
+  'heart-pulse', 'medical-bag', 'pill', 'hospital-box',
+  'school', 'book-open-variant', 'pencil', 'notebook',
+  'gamepad-variant', 'movie', 'music', 'palette', 'basketball',
+  'briefcase', 'account-tie', 'hammer-wrench', 'tools',
+  'gift', 'cake-variant', 'ticket', 'emoticon-happy',
+  'shape-outline', 'star', 'check-circle'
+];
+
+// Data interface
 interface CategoryData {
   name: string;
   iconName?: string | null;
 }
 
+// Props interface
 interface CategoryFormModalProps {
   isVisible: boolean;
   onClose: () => void;
-  onSave: (categoryData: CategoryData) => Promise<void>; // Make onSave async
-  initialData?: CategoryData & { id?: string }; // Include optional id for context
+  onSave: (categoryData: CategoryData) => Promise<void>;
+  initialData?: CategoryData & { id?: string };
   mode: 'add' | 'edit';
 }
 
-const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
+export default function CategoryFormModal({
   isVisible,
   onClose,
   onSave,
   initialData,
-  mode,
-}) => {
-  const [name, setName] = useState('');
-  const [iconName, setIconName] = useState('');
-  const [isSaving, setIsSaving] = useState(false); // Add saving state
+  mode
+}: CategoryFormModalProps) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme];
 
+  const [name, setName] = useState('');
+  const [iconName, setIconName] = useState<string | null>('shape-outline');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showIconPicker, setShowIconPicker] = useState(false);
+
+  // Reset state when modal opens/closes
   useEffect(() => {
-    // Populate form when initialData changes (e.g., when opening for edit)
-    if (isVisible && initialData) {
-      setName(initialData.name || '');
-      setIconName(initialData.iconName || '');
-    } else if (isVisible && mode === 'add') {
-      // Reset form when opening for add
-      setName('');
-      setIconName('');
+    if (isVisible) {
+      setName(initialData?.name || '');
+      setIconName(initialData?.iconName || 'shape-outline');
+      setError(null);
+      setIsSubmitting(false);
     }
-    // Reset saving state when modal visibility changes
-    setIsSaving(false);
-  }, [isVisible, initialData, mode]);
+  }, [isVisible, initialData]);
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Validation Error', 'Category name cannot be empty.');
+      setError('Category name is required.');
       return;
     }
-    setIsSaving(true); // Set saving state
+
+    setIsSubmitting(true);
+    setError(null);
+
     try {
-      await onSave({ name: name.trim(), iconName: iconName.trim() || null });
-      // onClose(); // Let the parent handle closing after successful save
-    } catch (error) {
-      // Error handling is likely done in the parent's onSave, but good to have a catch here
-      console.error('Error saving category in modal:', error);
-      Alert.alert('Error', `Failed to ${mode === 'add' ? 'add' : 'edit'} category.`);
-      setIsSaving(false); // Reset saving state on error
+      await onSave({
+        name: name.trim(),
+        iconName
+      });
+      handleClose();
+    } catch (err) {
+      console.error('Error saving category:', err);
+      setError('Failed to save category. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
-    // No finally block to reset isSaving, parent should close modal which resets it via useEffect
   };
 
-  const handleCancel = () => {
-    if (isSaving) return; // Prevent closing while saving
-    onClose();
+  const handleClose = () => {
+    if (!isSubmitting) {
+      onClose();
+    }
   };
 
+  const toggleIconPicker = () => {
+    setShowIconPicker(prev => !prev);
+  };
+
+  const selectIcon = (icon: string) => {
+    setIconName(icon);
+    setShowIconPicker(false);
+  };
+
+  // Icon picker component
+  const IconPicker = () => (
+    <View style={[styles.iconPickerContainer, { backgroundColor: colors.card }]}>
+      <View style={styles.iconPickerHeader}>
+        <ThemedText type="defaultSemiBold">Select an Icon</ThemedText>
+        <TouchableOpacity onPress={toggleIconPicker}>
+          <MaterialCommunityIcons name="close" size={24} color={colors.icon} />
+        </TouchableOpacity>
+      </View>
+      
+      <FlatList
+        data={AVAILABLE_ICONS}
+        keyExtractor={(item) => item}
+        numColumns={6}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={[
+              styles.iconItem,
+              iconName === item && { 
+                backgroundColor: colors.primary + '20',
+                borderColor: colors.primary 
+              }
+            ]}
+            onPress={() => selectIcon(item)}
+          >
+            <MaterialCommunityIcons name={item} size={28} color={colors.primary} />
+          </TouchableOpacity>
+        )}
+        style={styles.iconGrid}
+      />
+    </View>
+  );
+
+  // Main modal content
   return (
     <Modal
       visible={isVisible}
-      animationType="slide"
       transparent={true}
-      onRequestClose={handleCancel} // Allow closing via back button on Android
+      animationType="slide"
+      onRequestClose={handleClose}
     >
-      <View style={styles.centeredView}>
-        <View style={styles.modalView}>
-          <Text style={styles.modalTitle}>{mode === 'add' ? 'Add New Category' : 'Edit Category'}</Text>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.modalOverlay}>
+          <View 
+            style={[
+              styles.modalContainer, 
+              { 
+                backgroundColor: colors.card,
+                borderColor: colors.border
+              }
+            ]}
+          >
+            <View style={styles.header}>
+              <ThemedText type="subtitle">
+                {mode === 'add' ? 'Add New Category' : 'Edit Category'}
+              </ThemedText>
+              <TouchableOpacity onPress={handleClose} disabled={isSubmitting}>
+                <MaterialCommunityIcons name="close" size={24} color={colors.icon} />
+              </TouchableOpacity>
+            </View>
 
-          <Text style={styles.label}>Name:</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g., Groceries, Utilities"
-            value={name}
-            onChangeText={setName}
-            editable={!isSaving} // Disable input while saving
-          />
+            <ScrollView style={styles.scrollView}>
+              <View style={styles.formContent}>
+                <Input
+                  label="Category Name"
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Enter category name"
+                  autoCapitalize="words"
+                  error={error || undefined}
+                  editable={!isSubmitting}
+                />
+                
+                <View style={styles.iconSelector}>
+                  <ThemedText style={styles.iconLabel}>Category Icon</ThemedText>
+                  <TouchableOpacity 
+                    style={[
+                      styles.selectedIconContainer,
+                      { 
+                        borderColor: colors.border,
+                        backgroundColor: colors.input
+                      }
+                    ]} 
+                    onPress={toggleIconPicker}
+                  >
+                    <MaterialCommunityIcons 
+                      name={iconName || 'shape-outline'} 
+                      size={28} 
+                      color={colors.primary} 
+                    />
+                    <ThemedText style={styles.changeIconText}>
+                      {iconName ? 'Change Icon' : 'Select Icon'}
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
 
-          <Text style={styles.label}>Icon Name (Optional):</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g., shopping-cart, bolt"
-            value={iconName}
-            onChangeText={setIconName}
-            editable={!isSaving} // Disable input while saving
-          />
-
-          <View style={styles.buttonContainer}>
-            <Button title="Cancel" onPress={handleCancel} color="#666" disabled={isSaving} />
-            <Button
-              title={isSaving ? 'Saving...' : 'Save'}
-              onPress={handleSave}
-              disabled={isSaving} // Disable button while saving
-            />
+                {showIconPicker && <IconPicker />}
+                
+                <View style={styles.buttonContainer}>
+                  <Button
+                    title="Cancel"
+                    onPress={handleClose}
+                    disabled={isSubmitting}
+                    variant="outline"
+                    style={styles.cancelButton}
+                  />
+                  <Button
+                    title={isSubmitting ? 'Saving...' : 'Save Category'}
+                    onPress={handleSave}
+                    disabled={isSubmitting || !name.trim()}
+                    loading={isSubmitting}
+                    variant="primary"
+                    style={styles.saveButton}
+                  />
+                </View>
+              </View>
+            </ScrollView>
           </View>
         </View>
-      </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  centeredView: {
+  modalOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Dim background
+    padding: 20,
   },
-  modalView: {
-    margin: 20,
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 35,
-    alignItems: 'stretch', // Stretch items like TextInput
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-    width: '85%', // Modal width
-  },
-  modalTitle: {
-    marginBottom: 20,
-    textAlign: 'center',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  label: {
-    fontSize: 16,
-    marginBottom: 5,
-    color: '#333',
-  },
-  input: {
-    height: 40,
-    borderColor: '#ccc',
+  modalContainer: {
+    width: '100%',
+    maxWidth: 500,
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 15,
-    paddingHorizontal: 10,
-    borderRadius: 5,
-    backgroundColor: '#fff',
+    overflow: 'hidden',
+    maxHeight: '80%',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  formContent: {
+    padding: 16,
+  },
+  iconSelector: {
+    marginBottom: 16,
+  },
+  iconLabel: {
+    marginBottom: 6,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  selectedIconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  changeIconText: {
+    marginLeft: 12,
+  },
+  iconPickerContainer: {
+    marginBottom: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    overflow: 'hidden',
+  },
+  iconPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  iconGrid: {
+    padding: 8,
+    maxHeight: 240,
+  },
+  iconItem: {
+    width: '16.666%',
+    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: 8,
   },
   buttonContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around', // Space out buttons
-    marginTop: 20,
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  cancelButton: {
+    flex: 1,
+    marginRight: 8,
+  },
+  saveButton: {
+    flex: 1,
+    marginLeft: 8,
   },
 });
-
-export default CategoryFormModal;

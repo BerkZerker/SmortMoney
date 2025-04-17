@@ -30,9 +30,9 @@ Start-Process pwsh -ArgumentList "-NoExit", "-Command", "Write-Host 'Starting Fr
 Write-Host "Waiting for servers to initialize (15 seconds)..."
 Start-Sleep -Seconds 15
 
-# 5. Open Frontend URL in default browser
-Write-Host "Opening application in browser (http://localhost:8081)..."
-Start-Process "http://localhost:8081"
+# # 5. Open Frontend URL in default browser
+# Write-Host "Opening application in browser (http://localhost:8081)..."
+# Start-Process "http://localhost:8081"
 
 Write-Host "SmortMoney application startup initiated."
 Write-Host "Check the new terminal windows for server logs."

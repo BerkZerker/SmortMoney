@@ -138,19 +138,50 @@ router.post('/upload', upload.single('screenshot'), (req, res, next) => __awaite
         return; // Explicitly return void from catch
     }
 }));
-// PUT /api/transactions/:id - Update a transaction (specifically category for now)
-router.put('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const { id } = req.params;
-    // Expecting categoryId in the request body, can be string or null
-    const { categoryId } = req.body;
-    // Basic validation - categoryId must be present (even if null)
-    if (categoryId === undefined) {
-        res.status(400).json({ message: 'Missing categoryId in request body (can be null to unset).' });
+// GET /api/transactions - Fetch all transactions, sorted by date descending
+router.get('/', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const transactions = yield prisma.transaction.findMany({
+            orderBy: {
+                date: 'desc', // Sort by date, newest first
+            },
+            include: {
+                category: true, // Include related category details
+            },
+        });
+        res.json(transactions);
         return; // Explicitly return void
     }
+    catch (error) {
+        console.error('Error fetching transactions:', error);
+        res.status(500).json({ message: 'Server error fetching transactions.' });
+        return; // Explicitly return void from catch
+    }
+}));
+// PUT /api/transactions/:id - Update a transaction
+router.put('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    // Expecting multiple fields in the body
+    const { merchant, amount, date, categoryId, description } = req.body;
+    // --- Basic Validation ---
+    if (!merchant || amount === undefined || !date) {
+        res.status(400).json({ message: 'Missing required fields: merchant, amount, date.' });
+        return; // Explicitly return void
+    }
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount)) {
+        res.status(400).json({ message: 'Invalid amount provided.' });
+        return; // Explicitly return void
+    }
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+        res.status(400).json({ message: 'Invalid date format provided.' });
+        return; // Explicitly return void
+    }
+    // --- End Validation ---
     try {
-        // Check if the category exists (if categoryId is not null)
-        if (categoryId !== null) {
+        // Check if the category exists (if categoryId is provided and not null)
+        if (categoryId) {
             const categoryExists = yield prisma.category.findUnique({
                 where: { id: categoryId },
             });
@@ -163,13 +194,17 @@ router.put('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const updatedTransaction = yield prisma.transaction.update({
             where: { id: id },
             data: {
-                categoryId: categoryId, // Update the categoryId (allows null)
+                merchant: merchant,
+                amount: parsedAmount,
+                date: parsedDate,
+                categoryId: categoryId !== undefined ? categoryId : null, // Allow unsetting category
+                description: description !== undefined ? description : null, // Allow setting/unsetting description
             },
             include: {
                 category: true,
             },
         });
-        console.log(`Transaction ${id} category updated to ${categoryId}`);
+        console.log(`Transaction ${id} updated.`);
         res.json(updatedTransaction);
         return; // Explicitly return void
     }
@@ -181,6 +216,29 @@ router.put('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             return; // Explicitly return void
         }
         res.status(500).json({ message: 'Server error updating transaction.' });
+        return; // Explicitly return void from catch
+    }
+}));
+// DELETE /api/transactions/:id - Delete a transaction
+router.delete('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    try {
+        yield prisma.transaction.delete({
+            where: { id: id },
+        });
+        console.log(`Transaction ${id} deleted.`);
+        // Send a 204 No Content response for successful deletion
+        res.status(204).send();
+        return; // Explicitly return void
+    }
+    catch (error) { // Type the error
+        console.error(`Error deleting transaction ${id}:`, error);
+        // Handle specific Prisma errors, e.g., record not found
+        if ((error === null || error === void 0 ? void 0 : error.code) === 'P2025') { // Use optional chaining
+            res.status(404).json({ message: `Transaction with ID ${id} not found.` });
+            return; // Explicitly return void
+        }
+        res.status(500).json({ message: 'Server error deleting transaction.' });
         return; // Explicitly return void from catch
     }
 }));

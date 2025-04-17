@@ -1,49 +1,66 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Colors } from '../constants/Colors';
+import { useColorScheme } from '../hooks/useColorScheme';
 
 interface BudgetProgressBarProps {
   currentValue: number;
   budgetValue: number;
-  barColor?: string; // Optional color for the progress bar
-  height?: number; // Optional height for the bar
+  barColor?: string;
+  height?: number;
+  showLabel?: boolean;
+  labelPosition?: 'left' | 'right';
 }
 
 const BudgetProgressBar: React.FC<BudgetProgressBarProps> = ({
   currentValue,
   budgetValue,
-  barColor = '#4caf50', // Default to green
-  height = 10, // Default height
+  barColor,
+  height = 10,
+  showLabel = true,
+  labelPosition = 'right',
 }) => {
-  // Ensure budgetValue is not zero to avoid division by zero
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme];
+  
   // Calculate progress percentage, capped at 100%
   const progress = budgetValue > 0 ? Math.min((currentValue / budgetValue) * 100, 100) : 0;
-  const displayValue = budgetValue > 0 ? budgetValue : 0; // Display 0 if budget is 0 or less
+  const displayValue = budgetValue > 0 ? budgetValue : 0;
 
-  // Determine color based on progress (e.g., turn red if over budget)
-  let actualBarColor = barColor;
+  // Determine color based on progress
+  let actualBarColor = barColor || colors.good; // Default to good color (Electric Blue)
   if (currentValue > displayValue && displayValue > 0) {
-    actualBarColor = '#f44336'; // Red if over budget
+    actualBarColor = colors.bad; // Red if over budget
   } else if (progress > 85) {
-    actualBarColor = '#ff9800'; // Orange if close to budget
+    actualBarColor = colors.warning; // Warning color if close to budget
   }
 
   return (
     <View style={styles.container}>
-      <View style={[styles.track, { height: height }]}>
+      {showLabel && labelPosition === 'left' && (
+        <Text style={[styles.label, { color: colors.muted, textAlign: 'left' }]}>
+          ${currentValue.toFixed(2)} / ${displayValue.toFixed(2)}
+        </Text>
+      )}
+      
+      <View style={[styles.track, { height, backgroundColor: colorScheme === 'dark' ? colors.border : colors.secondary + '40' }]}>
         <View
           style={[
             styles.bar,
             {
               width: `${progress}%`,
               backgroundColor: actualBarColor,
-              height: height,
+              height,
             },
           ]}
         />
       </View>
-      <Text style={styles.label}>
-        ${currentValue.toFixed(2)} / ${displayValue.toFixed(2)}
-      </Text>
+      
+      {showLabel && labelPosition === 'right' && (
+        <Text style={[styles.label, { color: colors.muted, textAlign: 'right' }]}>
+          ${currentValue.toFixed(2)} / ${displayValue.toFixed(2)}
+        </Text>
+      )}
     </View>
   );
 };
@@ -51,22 +68,18 @@ const BudgetProgressBar: React.FC<BudgetProgressBarProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    marginBottom: 10, // Add some space below the progress bar
+    marginVertical: 4,
   },
   track: {
-    backgroundColor: '#e0e0e0', // Light grey background track
-    borderRadius: 5,
-    overflow: 'hidden', // Ensure the bar stays within the rounded corners
+    borderRadius: 6,
+    overflow: 'hidden',
   },
   bar: {
-    borderRadius: 5,
-    // Transition effect would be nice but requires Animated API or Reanimated
+    borderRadius: 6,
   },
   label: {
     fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-    textAlign: 'right', // Align text to the right
+    marginVertical: 2,
   },
 });
 

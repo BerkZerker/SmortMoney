@@ -1,30 +1,51 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, Button, FlatList, ActivityIndicator, Alert } from 'react-native';
-import { Link } from 'expo-router'; // Use Link for navigation
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'; // Import icons
-import { getCategories, deleteCategory, createCategory, updateCategory } from '../api/categoryService'; // Import all API functions
-import CategoryFormModal from '../components/CategoryFormModal'; // Import the modal
+import { 
+  StyleSheet, 
+  View, 
+  FlatList, 
+  ActivityIndicator, 
+  Alert, 
+  TouchableOpacity 
+} from 'react-native';
+import { router } from 'expo-router';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { 
+  getCategories, 
+  deleteCategory, 
+  createCategory, 
+  updateCategory 
+} from '../api/categoryService';
+import CategoryFormModal from '../components/CategoryFormModal';
+import { ThemedView } from '../components/ThemedView';
+import { ThemedText } from '../components/ThemedText';
+import { Button } from '../components/Button';
+import { Card } from '../components/Card';
+import { Colors } from '../constants/Colors';
+import { useColorScheme } from '../hooks/useColorScheme';
 
-// Define Category type (can be moved to shared types later)
+// Define Category type
 interface Category {
   id: string;
   name: string;
   iconName?: string | null;
 }
 
-// Define CategoryData type for the form (without id)
+// Define CategoryData type for the form
 interface CategoryData {
   name: string;
   iconName?: string | null;
 }
 
 export default function CategoriesScreen() {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme];
+  
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
-  const [currentCategory, setCurrentCategory] = useState<Category | null>(null); // For editing
+  const [currentCategory, setCurrentCategory] = useState<Category | null>(null);
 
   const fetchCategories = useCallback(async () => {
     if (!isLoading) setIsLoading(true);
@@ -44,7 +65,7 @@ export default function CategoriesScreen() {
     fetchCategories();
   }, [fetchCategories]);
 
-  // --- Modal Handling ---
+  // Modal Handling
   const openAddModal = () => {
     setModalMode('add');
     setCurrentCategory(null);
@@ -80,11 +101,11 @@ export default function CategoriesScreen() {
     }
   };
 
-  // --- Delete Handling ---
-  const handleDeleteCategory = (id: string) => {
+  // Delete Handling
+  const handleDeleteCategory = (id: string, name: string) => {
     Alert.alert(
       'Delete Category',
-      'Are you sure you want to delete this category?',
+      `Are you sure you want to delete "${name}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -106,124 +127,201 @@ export default function CategoriesScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Manage Categories</Text>
+    <ThemedView style={styles.container}>
+      <View style={styles.header}>
+        <ThemedText type="title" style={styles.title}>Categories</ThemedText>
+      </View>
+      
+      <View style={styles.actionContainer}>
+        <Button
+          title="Add New Category"
+          onPress={openAddModal}
+          variant="primary"
+          leftIcon={<MaterialCommunityIcons name="plus" size={18} color="#fff" />}
+        />
+      </View>
 
-      <Button title="Add New Category" onPress={openAddModal} />
-
-      {isLoading && categories.length === 0 && <ActivityIndicator size="large" color="#0000ff" style={styles.loader} />}
-      {error && <Text style={styles.errorText}>{error}</Text>}
+      {isLoading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <ThemedText style={styles.loadingText}>Loading categories...</ThemedText>
+        </View>
+      )}
+      
+      {error && (
+        <View style={styles.errorContainer}>
+          <MaterialCommunityIcons 
+            name="alert-circle-outline" 
+            size={24} 
+            color={colors.error} 
+          />
+          <ThemedText style={[styles.errorText, {color: colors.error}]}>
+            {error}
+          </ThemedText>
+        </View>
+      )}
 
       {!isLoading && !error && (
         <FlatList
           data={categories}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <View style={styles.categoryItem}>
-              <View style={styles.categoryInfo}>
-                <MaterialCommunityIcons
-                  name={item.iconName || 'shape-outline'} // Use provided icon or default
-                  size={24}
-                  color="#555" // Icon color
-                  style={styles.icon}
-                />
-                <Text style={styles.categoryText}>{item.name}</Text>
+            <Card style={styles.categoryCard}>
+              <View style={styles.categoryHeader}>
+                <View style={styles.categoryInfo}>
+                  <MaterialCommunityIcons
+                    name={item.iconName || "shape-outline"}
+                    size={24}
+                    color={colors.primary}
+                    style={styles.categoryIcon}
+                  />
+                  <ThemedText type="defaultSemiBold" style={styles.categoryName}>
+                    {item.name}
+                  </ThemedText>
+                </View>
+                <View style={styles.categoryActions}>
+                  <TouchableOpacity 
+                    onPress={() => openEditModal(item)}
+                    style={[styles.actionButton, { backgroundColor: colors.primary + '10' }]}
+                  >
+                    <MaterialCommunityIcons 
+                      name="pencil" 
+                      size={20} 
+                      color={colors.primary} 
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => handleDeleteCategory(item.id, item.name)}
+                    style={[styles.actionButton, { backgroundColor: colors.error + '10' }]}
+                  >
+                    <MaterialCommunityIcons 
+                      name="delete" 
+                      size={20} 
+                      color={colors.error} 
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={styles.buttonGroup}>
-                <Button title="Edit" onPress={() => openEditModal(item)} />
-                <View style={styles.buttonSpacer} />
-                <Button title="Delete" onPress={() => handleDeleteCategory(item.id)} color="red" />
-              </View>
+            </Card>
+          )}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={(
+            <View style={styles.emptyContainer}>
+              <MaterialCommunityIcons 
+                name="tag-plus" 
+                size={48} 
+                color={colors.muted} 
+              />
+              <ThemedText style={styles.emptyText}>
+                No categories found. Add your first category!
+              </ThemedText>
             </View>
           )}
-          style={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>No categories found. Add one!</Text>}
           refreshing={isLoading}
           onRefresh={fetchCategories}
         />
       )}
 
-      <Link href="/(tabs)/explore" asChild>
-         <Button title="Back to Explore" />
-      </Link>
+      {/* Bottom navigation button */}
+      <View style={styles.footer}>
+        <Button
+          title="Back to Home"
+          onPress={() => router.push('/(tabs)')}
+          variant="outline"
+          fullWidth
+        />
+      </View>
 
       <CategoryFormModal
         isVisible={isModalVisible}
         onClose={closeModal}
         onSave={handleSaveCategory}
-        initialData={currentCategory ?? undefined}
+        initialData={currentCategory || undefined}
         mode={modalMode}
       />
-    </View>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#f8f8f8',
+    padding: 16,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 16,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#333',
+    marginBottom: 8,
   },
-  loader: {
-    marginTop: 30,
+  actionContainer: {
+    marginBottom: 16,
   },
-  list: {
+  loadingContainer: {
     flex: 1,
-    marginTop: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  categoryItem: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+  loadingText: {
+    marginTop: 12,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    marginBottom: 16,
+  },
+  errorText: {
+    marginLeft: 8,
+  },
+  listContent: {
+    paddingBottom: 16,
+  },
+  categoryCard: {
+    marginBottom: 10,
+  },
+  categoryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 5,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
   },
-  categoryInfo: { // Container for icon and text
+  categoryInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1, // Allow this part to take available space
-    marginRight: 10, // Space before buttons
+    flex: 1,
   },
-  icon: {
-    marginRight: 10, // Space between icon and text
+  categoryIcon: {
+    marginRight: 12,
   },
-  categoryText: {
+  categoryName: {
     fontSize: 16,
-    flexShrink: 1, // Allow text to shrink if needed
   },
-  buttonGroup: {
+  categoryActions: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  buttonSpacer: {
-    width: 10,
+  actionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
-  errorText: {
-    color: 'red',
-    textAlign: 'center',
-    marginTop: 20,
-    fontSize: 16,
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
   },
   emptyText: {
+    marginTop: 16,
     textAlign: 'center',
-    marginTop: 50,
-    fontSize: 16,
-    color: '#666',
+    opacity: 0.7,
+  },
+  footer: {
+    marginTop: 'auto',
+    paddingTop: 16,
   },
 });

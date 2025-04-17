@@ -31,8 +31,8 @@ function fileToGenerativePart(buffer, mimeType) {
 // Add export keyword, parameter types, and return type annotation
 function analyzeTransactionImage(imageBuffer, mimeType) {
     return __awaiter(this, void 0, void 0, function* () {
-        // For text-and-image input (multimodal), use the gemini-1.5-flash model
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Use gemini-1.5-flash for multimodal
+        // For text-and-image input (multimodal), use the gemini-2.0-flash model
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // Use gemini-2.0-flash for multimodal
         const prompt = `
     Analyze the following transaction screenshot. Extract ALL transaction details visible.
     For each transaction, provide a JSON object with these fields:
@@ -46,7 +46,8 @@ function analyzeTransactionImage(imageBuffer, mimeType) {
   `;
         const imagePart = fileToGenerativePart(imageBuffer, mimeType);
         try {
-            console.log("Sending image to Gemini (gemini-1.5-flash) for analysis...");
+            // Corrected console log to reflect the actual model being used
+            console.log("Sending image to Gemini (gemini-2.0-flash) for analysis...");
             const result = yield model.generateContent([prompt, imagePart]);
             const response = yield result.response;
             const text = response.text();

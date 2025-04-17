@@ -80,6 +80,122 @@ export const uploadTransactionImage = async (imageAsset) => {
 };
 
 /**
+ * Fetches all transactions from the backend, sorted by date descending.
+ * @returns {Promise<Array<object>>} - An array of transaction objects.
+ * @throws {Error} - Throws an error if fetching fails.
+ */
+export const getAllTransactions = async () => {
+  const apiUrl = `${API_BASE_URL}/transactions`;
+  console.log(`Fetching all transactions from ${apiUrl}`);
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const responseData = await response.json();
+
+    if (!response.ok) {
+      const errorMessage = responseData.message || `HTTP error! status: ${response.status}`;
+      console.error('Fetch all transactions failed:', errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    console.log('All transactions fetched successfully:', responseData.length);
+    return responseData; // Should be an array of transaction objects
+
+  } catch (error) {
+    console.error('Error fetching all transactions:', error);
+    throw error;
+  }
+};
+
+/**
+ * Updates a specific transaction with the provided data.
+ * @param {string} transactionId - The ID of the transaction to update.
+ * @param {object} transactionData - The data to update (merchant, amount, date, categoryId, description).
+ * @returns {Promise<object>} - The updated transaction object from the backend.
+ * @throws {Error} - Throws an error if the update fails.
+ */
+export const updateTransaction = async (transactionId, transactionData) => {
+  const apiUrl = `${API_BASE_URL}/transactions/${transactionId}`;
+  console.log(`Updating transaction ${transactionId} via ${apiUrl}`);
+  console.log('Update data:', transactionData);
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(transactionData), // Send full update data
+    });
+
+    const responseData = await response.json();
+
+    if (!response.ok) {
+      const errorMessage = responseData.message || `HTTP error! status: ${response.status}`;
+      console.error('Update transaction failed:', errorMessage, responseData);
+      throw new Error(errorMessage);
+    }
+
+    console.log('Transaction updated successfully:', responseData);
+    return responseData; // Contains the updated transaction object
+
+  } catch (error) {
+    console.error(`Error updating transaction ${transactionId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Deletes a specific transaction.
+ * @param {string} transactionId - The ID of the transaction to delete.
+ * @returns {Promise<void>} - Resolves when deletion is successful.
+ * @throws {Error} - Throws an error if the deletion fails.
+ */
+export const deleteTransaction = async (transactionId) => {
+  const apiUrl = `${API_BASE_URL}/transactions/${transactionId}`;
+  console.log(`Deleting transaction ${transactionId} via ${apiUrl}`);
+
+  try {
+    // Add a small delay to simulate network latency and avoid UI issues
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    const response = await fetch(apiUrl, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    // DELETE requests often return 204 No Content on success, which has no body
+    if (!response.ok && response.status !== 204) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      // Try to parse error message if body exists
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorMessage;
+      } catch (parseError) {
+        // Ignore if body is not JSON or empty
+      }
+      console.error('Delete transaction failed:', errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    console.log(`Transaction ${transactionId} deleted successfully.`);
+    return true; // Return success indicator
+
+  } catch (error) {
+    console.error(`Error deleting transaction ${transactionId}:`, error);
+    throw error;
+  }
+};
+
+/**
  * Fetches the transaction summary (total spent per category) for a given month and year.
  * @param {number} month - The month (1-12).
  * @param {number} year - The year.
