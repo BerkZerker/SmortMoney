@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, Dimensions, ViewStyle, ScrollViewProps } from 'react-native';
+import { View, StyleSheet, ScrollView, useWindowDimensions, ViewStyle, ScrollViewProps } from 'react-native';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 
@@ -10,9 +10,6 @@ interface ContainerLayoutProps extends ScrollViewProps {
   noScroll?: boolean;
 }
 
-// Get screen dimensions for responsive layout
-const { width } = Dimensions.get('window');
-
 export function ContainerLayout({ 
   children, 
   style, 
@@ -22,6 +19,10 @@ export function ContainerLayout({
 }: ContainerLayoutProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
+  const { width } = useWindowDimensions(); // Get current window width dynamically
+  
+  // Calculate responsive maxWidth based on screen size
+  const responsiveMaxWidth = width > 1200 ? 1100 : width > 800 ? 900 : '100%';
 
   if (noScroll) {
     return (
@@ -32,7 +33,11 @@ export function ContainerLayout({
           style
         ]}
       >
-        <View style={[styles.contentContainer, contentContainerStyle]}>
+        <View style={[
+          styles.contentContainer, 
+          { maxWidth: responsiveMaxWidth },
+          contentContainerStyle
+        ]}>
           {children}
         </View>
       </View>
@@ -42,7 +47,11 @@ export function ContainerLayout({
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }, style]}
-      contentContainerStyle={[styles.contentContainer, contentContainerStyle]}
+      contentContainerStyle={[
+        styles.contentContainer, 
+        { maxWidth: responsiveMaxWidth },
+        contentContainerStyle
+      ]}
       showsVerticalScrollIndicator={false}
       {...rest}
     >
@@ -58,10 +67,10 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 12, // Reduced horizontal padding
+    paddingVertical: 12, // Reduced vertical padding
     width: '100%',
-    maxWidth: 600, // Limit content width for better readability
     alignSelf: 'center', // Center content on wider screens
+    // maxWidth is now set dynamically in the component
   },
 });

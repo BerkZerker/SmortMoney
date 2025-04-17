@@ -100,20 +100,20 @@ export function Button({
     switch (size) {
       case 'small':
         return {
-          paddingVertical: 5,
-          paddingHorizontal: 10,
+          paddingVertical: 4, // Reduced padding
+          paddingHorizontal: 8, // Reduced padding
           borderRadius: 4,
         };
       case 'large':
         return {
-          paddingVertical: 12,
-          paddingHorizontal: 18,
+          paddingVertical: 10, // Reduced padding
+          paddingHorizontal: 16, // Reduced padding
           borderRadius: 8,
         };
       default:
         return {
-          paddingVertical: 8,
-          paddingHorizontal: 14,
+          paddingVertical: 6, // Reduced padding
+          paddingHorizontal: 12, // Reduced padding 
           borderRadius: 6,
         };
     }

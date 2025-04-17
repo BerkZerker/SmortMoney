@@ -22,9 +22,9 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 8,
+          height: 50, // Reduced height
+          paddingBottom: 5, // Reduced padding
+          paddingTop: 5, // Reduced padding
         },
         headerRight: () => (
           <ThemeToggle style={styles.themeToggle} />

@@ -12,182 +12,189 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express")); // Import necessary types
+const express_1 = require("express"); // Import Request, Response, NextFunction
+const client_1 = require("@prisma/client"); // Import Prisma for types if needed
 const multer_1 = __importDefault(require("multer"));
-const client_1 = require("@prisma/client"); // Import Prisma Client and types
-const geminiService_1 = require("../services/geminiService"); // Import Gemini service and its result type
-const router = express_1.default.Router();
-const prisma = new client_1.PrismaClient(); // Instantiate Prisma Client
-// Configure Multer for memory storage
+// Correct the import name based on geminiService.ts
+const geminiService_1 = require("../services/geminiService");
+const router = (0, express_1.Router)();
+const prisma = new client_1.PrismaClient();
+// Configure multer for file uploads
 const storage = multer_1.default.memoryStorage();
 const upload = (0, multer_1.default)({
     storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // Limit file size (e.g., 10MB)
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max file size (adjust as needed)
     fileFilter: (req, file, cb) => {
-        // Accept only image files
+        // Accept only images
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
         }
         else {
-            // Pass an error to cb to reject the file
-            cb(new Error('Not an image! Please upload an image file.'));
+            // Reject file
+            cb(new Error('Only image files are allowed for receipts!'));
         }
-    },
+    }
 });
-// POST /api/transactions/upload
-// The 'screenshot' string should match the key used in the FormData on the frontend
+// Upload and analyze receipt image
+// POST /api/transactions/upload - Upload and analyze a transaction receipt
 router.post('/upload', upload.single('screenshot'), (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    // --- DEBUGGING ---
-    console.log('--- Request Received ---');
+    // Log received request
+    console.log('Processing upload request');
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
-    // Use type assertion for req.file as Express.Multer.File
-    console.log('req.file:', req.file);
-    console.log('req.body:', req.body); // Log any other form fields
-    console.log('--- End Request ---');
-    // --- END DEBUGGING ---
+    // Multer adds the file info to the request object
+    console.log('File info', req.file); // Type inference should work now
+    console.log('Body info', req.body); // Any other form fields
+    console.log('Analyzing receipt...');
+    // Process the upload
     try {
-        // Use type assertion for req.file
-        const file = req.file;
+        // Check if file was provided
+        const file = req.file; // Use inferred type
         if (!file) {
-            console.error('req.file is undefined or null.');
-            res.status(400).json({ message: 'No image file uploaded.' });
-            return; // Explicitly return void
+            console.error('No file uploaded or file invalid');
+            res.status(400).send({ message: 'Please upload a receipt' });
+            return; // Early return on error
         }
-        console.log('Image received:', file.originalname, file.mimetype, file.size);
-        // 1. Analyze the image using Gemini Service
-        // Assuming analyzeTransactionImage returns Promise<GeminiTransactionResult[]>
-        const analysisResult = yield (0, geminiService_1.analyzeTransactionImage)(file.buffer, file.mimetype);
-        // Validate analysis result
-        if (!Array.isArray(analysisResult) || analysisResult.length === 0) {
-            throw new Error('Gemini analysis did not return a valid array of transactions.');
+        console.log('File received:', file.originalname, file.mimetype, file.size);
+        // Send to Google Gemini Vision for analysis
+        // This might return an array of potential transactions based on the image
+        const extractedFields = yield (0, geminiService_1.analyzeTransactionImage)(file.buffer, file.mimetype); // Use correct function name
+        // Validate extraction results
+        if (!Array.isArray(extractedFields) || extractedFields.length === 0) {
+            throw new Error('Could not extract any transaction data from the uploaded receipt');
         }
-        const savedTransactions = []; // Type the array
-        const errors = []; // Type the errors array
-        // Process each transaction found by Gemini
-        for (const transactionData of analysisResult) {
+        const savedTransactions = []; // Array to store
+        const errors = []; // Store any errors
+        // Process each extracted transaction
+        for (const extractedField of extractedFields) {
             try {
-                // Basic validation for each transaction object
-                if (!transactionData || !transactionData.merchant || !transactionData.amount || !transactionData.date) {
-                    console.warn('Skipping invalid transaction data from Gemini:', transactionData);
-                    errors.push({ message: 'Missing required fields for a transaction.', data: transactionData });
-                    continue; // Skip this transaction
+                // Basic validation for required transaction fields
+                if (!extractedField || !extractedField.merchant || !extractedField.amount || !extractedField.date) {
+                    console.warn('Skipping invalid transaction from extraction:', extractedField);
+                    errors.push({ message: 'Transaction missing required fields (merchant/amount/date)', data: extractedField });
+                    continue; // Skip to next extraction
                 }
-                // 2. Find or create the category
-                let category = null; // Type the category variable
-                if (transactionData.category) {
-                    category = yield prisma.category.upsert({
-                        where: { name: transactionData.category },
-                        update: {},
-                        create: { name: transactionData.category },
+                // Check if category exists first
+                let category = null; // Should be a Category type
+                if (extractedField.category) {
+                    // Simplified findFirst - just need the ID if it exists
+                    // Ensure correct syntax for case-insensitive search
+                    category = yield prisma.category.findFirst({
+                        where: {
+                            name: {
+                                equals: extractedField.category // Removed mode: 'insensitive' for now
+                            }
+                        },
+                        select: { id: true } // Only select the ID
                     });
                 }
-                // 3. Save the transaction details using Prisma
-                // Validate amount is a number before saving
-                if (typeof transactionData.amount !== 'number') {
-                    console.warn('Skipping transaction due to invalid amount type:', transactionData);
-                    errors.push({ message: 'Invalid amount type received from Gemini.', data: transactionData });
+                // Validate amount is numeric before saving to database
+                // This should be handled by Prisma schema, but let's be safe
+                if (typeof extractedField.amount !== 'number') {
+                    console.warn('Amount is not a number, cannot save transaction:', extractedField);
+                    errors.push({ message: 'Transaction amount must be a number value', data: extractedField });
                     continue;
                 }
                 const newTransaction = yield prisma.transaction.create({
                     data: {
-                        merchant: transactionData.merchant,
-                        amount: transactionData.amount, // Assign the number directly
-                        date: new Date(transactionData.date), // Convert date string to Date object
-                        categoryId: category ? category.id : null, // Link to category if found/created
-                        // description: transactionData.description, // Add if Gemini provides it
-                    },
+                        merchant: extractedField.merchant,
+                        amount: extractedField.amount, // This should be a number
+                        date: new Date(extractedField.date), // Convert string date to Date object
+                        categoryId: category ? category.id : null, // Link to category if found
+                        // description: We could add additional fields as needed
+                    }
                 });
                 savedTransactions.push(newTransaction);
-                console.log('Transaction saved:', newTransaction);
+                console.log('Saved transaction:', newTransaction);
             }
-            catch (loopError) { // Type the loop error
-                console.error(`Error processing transaction item: ${JSON.stringify(transactionData)}`, loopError);
-                errors.push({ message: `Error saving transaction for ${transactionData.merchant || 'unknown'}.`, error: loopError === null || loopError === void 0 ? void 0 : loopError.message }); // Use optional chaining
+            catch (innerError) { // Keep 'any' for now, consider 'unknown' later
+                console.error(`Error saving extracted transaction ${JSON.stringify(extractedField)}:`, innerError);
+                // Remove invalid 'error' property
+                errors.push({ message: `Failed to save transaction ${extractedField.merchant}: ${innerError === null || innerError === void 0 ? void 0 : innerError.message}` }); // Store error info
             }
         }
-        // Send the response for saved transactions
+        // Return success with saved transactions
         if (savedTransactions.length > 0) {
             res.status(201).json({
-                message: `Processed ${analysisResult.length} potential transactions. Saved ${savedTransactions.length}.`,
+                message: `Processed ${extractedFields.length} potential transactions, successfully saved ${savedTransactions.length}`,
                 transactions: savedTransactions,
-                errors: errors.length > 0 ? errors : undefined, // Include errors if any occurred
+                errors: errors.length > 0 ? errors : undefined, // Only include errors if any
             });
-            return; // Explicitly return void
+            return; // Early return on success
         }
         else {
-            // If no transactions were saved, it's likely due to errors or invalid data
-            // Let the error be caught by the main catch block
+            // If we couldn't save any transactions but tried to extract some, report error
+            // with details about what went wrong for each extraction
             throw new Error(`Failed to save any transactions. ${errors.length} errors occurred.`);
         }
     }
-    catch (error) { // Type the main error
-        console.error('Error in /upload route:', error);
-        // Handle specific multer errors (like file size limit) if needed
+    catch (error) { // Need to type this
+        console.error('Receipt analysis error:', error);
+        // Handle specific error types with appropriate status codes
         if (error instanceof multer_1.default.MulterError) {
-            res.status(400).json({ message: `Multer error: ${error.message}` });
-            return; // Explicitly return void
+            res.status(400).json({ message: `File upload error: ${error.message}` });
+            return; // Early return on error
         }
-        else if ((_a = error === null || error === void 0 ? void 0 : error.message) === null || _a === void 0 ? void 0 : _a.startsWith('Not an image!')) { // Use optional chaining
+        else if ((_a = error === null || error === void 0 ? void 0 : error.message) === null || _a === void 0 ? void 0 : _a.startsWith('Invalid file')) { // File-related errors
             res.status(400).json({ message: error.message });
-            return; // Explicitly return void
+            return; // Early return on error
         }
-        // Pass other errors to a generic error handler (if implemented) or return 500
-        // next(error); // Or handle directly:
-        res.status(500).json({ message: 'Server error during upload.' });
-        return; // Explicitly return void from catch
+        // Catch-all for other server errors - don't expose internal details to client
+        // but log them on the server side
+        res.status(500).json({ message: 'Server error processing receipt' });
+        return; // Explicit return for clarity
     }
 }));
-// GET /api/transactions - Fetch all transactions, sorted by date descending
+// GET all transactions - GET /api/transactions - Returns all transactions
 router.get('/', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const transactions = yield prisma.transaction.findMany({
             orderBy: {
-                date: 'desc', // Sort by date, newest first
+                date: 'desc', // Most recent transactions first
             },
             include: {
-                category: true, // Include related category details
-            },
+                category: true, // Include related category data
+            }
         });
         res.json(transactions);
-        return; // Explicitly return void
+        return; // Explicit return for clarity
     }
     catch (error) {
         console.error('Error fetching transactions:', error);
-        res.status(500).json({ message: 'Server error fetching transactions.' });
-        return; // Explicitly return void from catch
+        res.status(500).json({ message: 'Failed to retrieve transactions' });
+        return; // Explicit return for clarity
     }
 }));
-// PUT /api/transactions/:id - Update a transaction
+// Update a transaction - PUT /api/transactions/:id
 router.put('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
-    // Expecting multiple fields in the body
+    // Extract fields from request body
     const { merchant, amount, date, categoryId, description } = req.body;
-    // --- Basic Validation ---
+    // Basic request validation
     if (!merchant || amount === undefined || !date) {
-        res.status(400).json({ message: 'Missing required fields: merchant, amount, date.' });
-        return; // Explicitly return void
+        res.status(400).json({ message: 'Merchant, amount, and date are required fields' });
+        return; // Explicit return for clarity
     }
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount)) {
-        res.status(400).json({ message: 'Invalid amount provided.' });
-        return; // Explicitly return void
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum)) {
+        res.status(400).json({ message: 'Amount must be a number' });
+        return; // Explicit return for clarity
     }
-    const parsedDate = new Date(date);
-    if (isNaN(parsedDate.getTime())) {
-        res.status(400).json({ message: 'Invalid date format provided.' });
-        return; // Explicitly return void
+    const dateValue = new Date(date);
+    if (isNaN(dateValue.getTime())) {
+        res.status(400).json({ message: 'Invalid date format' });
+        return; // Explicit return for clarity
     }
-    // --- End Validation ---
+    // Category validation
     try {
-        // Check if the category exists (if categoryId is provided and not null)
+        // Verify category exists if provided (to avoid foreign key constraint errors)
         if (categoryId) {
             const categoryExists = yield prisma.category.findUnique({
-                where: { id: categoryId },
+                where: { id: categoryId }
             });
             if (!categoryExists) {
-                res.status(404).json({ message: `Category with ID ${categoryId} not found.` });
-                return; // Explicitly return void
+                res.status(404).json({ message: `Category with ID ${categoryId} not found` });
+                return; // Explicit return for clarity
             }
         }
         // Update the transaction
@@ -195,116 +202,143 @@ router.put('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             where: { id: id },
             data: {
                 merchant: merchant,
-                amount: parsedAmount,
-                date: parsedDate,
-                categoryId: categoryId !== undefined ? categoryId : null, // Allow unsetting category
-                description: description !== undefined ? description : null, // Allow setting/unsetting description
+                amount: amountNum,
+                date: dateValue,
+                categoryId: categoryId !== undefined ? categoryId : null, // Handle null categoryId
+                description: description !== undefined ? description : null, // Same for description if provided
             },
             include: {
                 category: true,
-            },
+            }
         });
-        console.log(`Transaction ${id} updated.`);
+        console.log('Updated TX:', description);
         res.json(updatedTransaction);
-        return; // Explicitly return void
+        return; // Explicit return for clarity
     }
     catch (error) { // Type the error
         console.error(`Error updating transaction ${id}:`, error);
-        // Handle specific Prisma errors, e.g., record not found
-        if ((error === null || error === void 0 ? void 0 : error.code) === 'P2025') { // Use optional chaining
-            res.status(404).json({ message: `Transaction with ID ${id} not found.` });
-            return; // Explicitly return void
+        // Handle not found error specifically
+        if ((error === null || error === void 0 ? void 0 : error.code) === 'P2025') { // Prisma not found error
+            res.status(404).json({ message: `Transaction with ID ${id} not found` });
+            return; // Explicit return for clarity
         }
-        res.status(500).json({ message: 'Server error updating transaction.' });
-        return; // Explicitly return void from catch
+        res.status(500).json({ message: 'Failed to update transaction' });
+        return; // Explicit return for clarity
     }
 }));
-// DELETE /api/transactions/:id - Delete a transaction
+// Delete a transaction - DELETE /api/transactions/:id
 router.delete('/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     try {
         yield prisma.transaction.delete({
-            where: { id: id },
+            where: { id: id }
         });
-        console.log(`Transaction ${id} deleted.`);
-        // Send a 204 No Content response for successful deletion
+        console.log('Deleted TX:', id);
+        // Return 204 No Content for successful deletion
         res.status(204).send();
-        return; // Explicitly return void
+        return; // Explicit return for clarity
     }
     catch (error) { // Type the error
         console.error(`Error deleting transaction ${id}:`, error);
-        // Handle specific Prisma errors, e.g., record not found
-        if ((error === null || error === void 0 ? void 0 : error.code) === 'P2025') { // Use optional chaining
-            res.status(404).json({ message: `Transaction with ID ${id} not found.` });
-            return; // Explicitly return void
+        // Handle not found error specifically
+        if ((error === null || error === void 0 ? void 0 : error.code) === 'P2025') { // Prisma not found error
+            res.status(404).json({ message: `Transaction with ID ${id} not found` });
+            return; // Explicit return for clarity
         }
-        res.status(500).json({ message: 'Server error deleting transaction.' });
-        return; // Explicitly return void from catch
+        res.status(500).json({ message: 'Failed to delete transaction' });
+        return; // Explicit return for clarity
     }
 }));
-// GET /api/transactions/summary - Get total spending per category for a given period
+// Get monthly spending summary grouped by category - GET /api/transactions/summary
 router.get('/summary', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    // Type the query parameters
+    // Extract query parameters
+    // Type assertion should work correctly now with `Request` type
     const { month, year } = req.query;
-    // Validate query parameters
+    // Validate month and year
     if (!month || !year) {
-        res.status(400).json({ message: 'Missing month or year query parameters.' });
-        return; // Explicitly return void
+        res.status(400).json({ message: 'Month and year parameters are required' });
+        return; // Explicit return for clarity
     }
     const monthNum = parseInt(month, 10);
     const yearNum = parseInt(year, 10);
     if (isNaN(monthNum) || monthNum < 1 || monthNum > 12 || isNaN(yearNum)) {
-        res.status(400).json({ message: 'Invalid month or year query parameters.' });
-        return; // Explicitly return void
+        res.status(400).json({ message: 'Invalid month or year parameters' });
+        return; // Explicit return for clarity
     }
     try {
-        // Calculate start and end dates for the given month/year
+        // Calculate start and end dates for the given month
         const startDate = new Date(yearNum, monthNum - 1, 1); // Month is 0-indexed
-        const endDate = new Date(yearNum, monthNum, 1); // Start of next month (exclusive)
-        // Use Prisma aggregation to sum amounts grouped by categoryId
-        const spendingSummary = yield prisma.transaction.groupBy({
-            by: ['categoryId'],
+        const endDate = new Date(yearNum, monthNum, 0); // Last day of the month
+        // Find all transactions for the given month with their categories
+        const monthTransactions = yield prisma.transaction.findMany({
             where: {
                 date: {
                     gte: startDate, // Greater than or equal to start date
-                    lt: endDate, // Less than start of next month
+                    lte: endDate // Less than or equal to end date
                 },
                 categoryId: {
-                    not: null, // Exclude transactions without a category
-                },
+                    not: null, // Only include categorized transactions (optional)
+                }
             },
-            _sum: {
-                amount: true, // Sum the amount field
+            select: {
+                amount: true, // We need the amount
+                date: true, // Include date for debugging/reference
+                categoryId: true, // Include the category ID
             },
             orderBy: {
-                _sum: {
-                    amount: 'desc',
-                },
-            },
+                // Correct orderBy syntax
+                date: 'desc'
+            }
         });
-        // Fetch category names for the summary
-        const categoryIds = spendingSummary.map(item => item.categoryId).filter(id => id !== null);
+        // Get all category IDs from transactions
+        const categoryIds = monthTransactions.map(item => item.categoryId).filter(id => id !== null);
         const categories = yield prisma.category.findMany({
             where: { id: { in: categoryIds } },
-            select: { id: true, name: true, iconName: true } // Select needed fields
+            select: { id: true, name: true, iconName: true }, // Select fields needed
         });
         const categoryMap = new Map(categories.map(cat => [cat.id, cat]));
-        const formattedSummary = spendingSummary.map(item => {
+        // Calculate total spent per category using the defined interface
+        const spendingByCategory = monthTransactions.map(item => {
+            var _a;
             const category = item.categoryId ? categoryMap.get(item.categoryId) : null;
             return {
                 categoryId: item.categoryId,
                 categoryName: category === null || category === void 0 ? void 0 : category.name,
-                categoryIcon: category === null || category === void 0 ? void 0 : category.iconName,
-                totalSpent: item._sum.amount || 0,
+                // Ensure type compatibility: provide undefined if iconName is null or undefined
+                categoryIcon: (_a = category === null || category === void 0 ? void 0 : category.iconName) !== null && _a !== void 0 ? _a : undefined,
+                totalSpent: item.amount || 0
             };
         });
-        res.json(formattedSummary);
-        return; // Explicitly return void
+        res.json(spendingByCategory);
+        return; // Explicit return for clarity
     }
     catch (error) { // Type the error
-        console.error(`Error fetching transaction summary for ${year}-${month}:`, error);
-        res.status(500).json({ message: 'Server error fetching transaction summary.' });
-        return; // Explicitly return void from catch
+        console.error(`Error generating category summary for ${year}-${month}:`, error);
+        res.status(500).json({ message: 'Error generating monthly spending summary' });
+        return; // Explicit return for clarity
+    }
+}));
+/**
+ * @route  DELETE /api/transactions/clear
+ * @desc   Clear all transactions from database
+ * @access Public (in a real app, this should be admin-only)
+ */
+// Add explicit types for req and res
+router.delete('/clear', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        // Use deleteMany to remove all transactions
+        yield prisma.transaction.deleteMany({});
+        res.status(200).json({
+            success: true,
+            message: 'All transactions have been deleted'
+        });
+    }
+    catch (error) {
+        console.error('Error clearing transactions:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while clearing transactions'
+        });
     }
 }));
 exports.default = router;

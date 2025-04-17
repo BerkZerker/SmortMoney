@@ -20,11 +20,9 @@ export function ThemeToggle({ size = 24, style }: ThemeToggleProps) {
     
     // Force reload the app to apply the theme change
     // This is a workaround since the theme state might not propagate immediately
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        window.location.reload();
-      }
-    }, 100);
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
   };
 
   return (
@@ -36,7 +34,8 @@ export function ThemeToggle({ size = 24, style }: ThemeToggleProps) {
     >
       <View style={styles.toggleWrapper}>
         <MaterialCommunityIcons 
-          name={colorScheme === 'dark' ? 'weather-night' : 'white-balance-sunny'} 
+          // Show sun icon in dark mode and moon icon in light mode (inverted logic)
+          name={colorScheme === 'dark' ? 'white-balance-sunny' : 'weather-night'} 
           size={size} 
           color={colors.text} 
         />

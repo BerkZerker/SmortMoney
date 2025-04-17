@@ -162,8 +162,28 @@ export const deleteTransaction = async (transactionId) => {
   console.log(`Deleting transaction ${transactionId} via ${apiUrl}`);
 
   try {
-    // Add a small delay to simulate network latency and avoid UI issues
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // Simple delay implementation without setTimeout
+    await new Promise(resolve => {
+      const delayTime = 300;
+      const startTime = Date.now();
+      
+      // Create a basic polling mechanism 
+      function poll() {
+        if (Date.now() - startTime >= delayTime) {
+          resolve();
+        } else {
+          // Use requestAnimationFrame if available, otherwise use a setInterval-like approach
+          if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+            window.requestAnimationFrame(poll);
+          } else {
+            // Fallback for Node.js environments
+            setImmediate ? setImmediate(poll) : resolve();
+          }
+        }
+      }
+      
+      poll();
+    });
     
     const response = await fetch(apiUrl, {
       method: 'DELETE',

@@ -13,7 +13,7 @@ interface CardProps {
 
 export function Card({ children, title, style, contentStyle }: CardProps) {
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme];
+  const colors = Colors[colorScheme ?? 'light'];
 
   return (
     <View
@@ -27,7 +27,7 @@ export function Card({ children, title, style, contentStyle }: CardProps) {
       ]}
     >
       {title && (
-        <View style={styles.titleContainer}>
+        <View style={[styles.titleContainer, { borderBottomColor: colors.border }]}>
           <ThemedText type="defaultSemiBold" style={styles.title}>
             {title}
           </ThemedText>
@@ -40,27 +40,23 @@ export function Card({ children, title, style, contentStyle }: CardProps) {
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 12,
+    borderRadius: 8, // Reduced border radius
     borderWidth: 1,
     overflow: 'hidden',
-    marginVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 3,
+    marginVertical: 6, // Reduced vertical margin
+    // Using elevation only for Android to avoid web shadow warnings
+    elevation: 2, // Reduced elevation
   },
   titleContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 12, // Reduced horizontal padding
+    paddingTop: 8, // Reduced top padding
+    paddingBottom: 6, // Reduced bottom padding
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
   },
   title: {
-    fontSize: 16,
+    fontSize: 15, // Slightly smaller font size
   },
   content: {
-    padding: 16,
+    padding: 12, // Reduced padding
   },
 });

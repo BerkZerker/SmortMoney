@@ -377,17 +377,17 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: containerPadding,
-    paddingBottom: 16,
-    paddingTop: 16,
-    maxWidth: 600,
+    paddingHorizontal: 10, // Reduced padding
+    paddingBottom: 12,
+    paddingTop: 12,
+    maxWidth: '100%', // Use full width on mobile
     alignSelf: 'center',
     width: '100%',
   },
   header: {
     alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 16,
+    marginTop: 8, // Reduced margin
+    marginBottom: 8, // Reduced margin
   },
   title: {
     marginBottom: 4,
