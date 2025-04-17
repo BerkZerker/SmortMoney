@@ -1,0 +1,82 @@
+"use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.analyzeTransactionImage = analyzeTransactionImage;
+const generative_ai_1 = require("@google/generative-ai"); // Use import, correct type is Part
+// Access your API key as an environment variable
+const apiKey = process.env.GEMINI_API_KEY;
+if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable not set.");
+}
+const genAI = new generative_ai_1.GoogleGenerativeAI(apiKey);
+// --- Helper function to convert buffer to Gemini Part ---
+// Add types for parameters and return value
+function fileToGenerativePart(buffer, mimeType) {
+    return {
+        inlineData: {
+            data: buffer.toString("base64"),
+            mimeType
+        },
+    };
+}
+// --- Main analysis function ---
+// Add export keyword, parameter types, and return type annotation
+function analyzeTransactionImage(imageBuffer, mimeType) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // For text-and-image input (multimodal), use the gemini-1.5-flash model
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Use gemini-1.5-flash for multimodal
+        const prompt = `
+    Analyze the following transaction screenshot. Extract ALL transaction details visible.
+    For each transaction, provide a JSON object with these fields:
+    - merchant: The name of the merchant or vendor (string).
+    - amount: The transaction amount as a number (float). Use negative for debits/purchases, positive for credits/income.
+    - date: The date of the transaction in "YYYY-MM-DD" format (string). If the year isn't present, assume the current year.
+    - category: Suggest ONE category from this list: Groceries, Dining, Transport, Utilities, Entertainment, Shopping, Income, Transfer, Rent/Mortgage, Fees, Other (string).
+
+    If any field is unclear or missing for a transaction, use null for that field.
+    Respond ONLY with a valid JSON array containing one object for each distinct transaction found in the image. Do not include any other text or markdown formatting. Example: [{"merchant": "Example Cafe", "amount": -12.50, "date": "2024-03-15", "category": "Dining"}, {"merchant": "Salary", "amount": 2000.00, "date": "2024-03-14", "category": "Income"}]
+  `;
+        const imagePart = fileToGenerativePart(imageBuffer, mimeType);
+        try {
+            console.log("Sending image to Gemini (gemini-1.5-flash) for analysis...");
+            const result = yield model.generateContent([prompt, imagePart]);
+            const response = yield result.response;
+            const text = response.text();
+            console.log("Gemini Raw Response Text:", text);
+            // Attempt to parse the JSON response from Gemini
+            let jsonData; // Type the variable
+            // Clean potential markdown formatting
+            const cleanedText = text.replace(/^```json\s*|\s*```$/g, '').trim();
+            try {
+                jsonData = JSON.parse(cleanedText);
+                // Basic validation: Check if it's an array
+                if (!Array.isArray(jsonData)) {
+                    console.error("Gemini response was not a JSON array:", jsonData);
+                    throw new Error("Gemini response was not in the expected array format.");
+                }
+            }
+            catch (parseError) {
+                console.error("Failed to parse Gemini JSON response:", parseError);
+                console.error("Cleaned Gemini Text:", cleanedText); // Log the text that failed parsing
+                throw new Error(`Failed to parse Gemini response: ${parseError.message}`);
+            }
+            console.log("Parsed Gemini JSON Data (Array):", jsonData);
+            return jsonData; // Return the array
+        }
+        catch (error) { // Add type annotation
+            console.error("Error analyzing image with Gemini:", error);
+            // Improve error message detail
+            throw new Error(`Failed to analyze transaction image with Gemini: ${error.message}`);
+        }
+    });
+}
+// No need for module.exports when using export keyword above
+//# sourceMappingURL=geminiService.js.map

@@ -1,0 +1,48 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // Changed from postgresql
+  url      = env("DATABASE_URL") // Will point to a file path
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  date        DateTime // Date of the transaction itself
+  merchant    String
+  amount      Float
+  description String?  // Optional description
+  categoryId  String?  // Optional: Link to a category
+  category    Category? @relation(fields: [categoryId], references: [id])
+
+  // @@index([categoryId]) // Add index if querying by category often
+}
+
+model Category {
+  id           String        @id @default(cuid())
+  name         String        @unique // e.g., Groceries, Dining, Transport
+  iconName     String?       // Optional: Name of the icon (e.g., from Material Icons)
+  transactions Transaction[] // Relation to transactions
+  budgets      Budget[]      // Relation to budgets
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  month      Int      // e.g., 1 for January, 12 for December
+  year       Int      // e.g., 2024
+  amount     Float    // The budget limit for the category for this month/year
+  categoryId String   // Link to the category
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([categoryId, month, year]) // Ensure only one budget per category per month/year
+}
+
+// TODO: Add User model if implementing authentication
